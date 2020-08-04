@@ -31,7 +31,13 @@ def show_image(name, image):
 	print("Press any key to continue")
 	cv2.imshow(name, image)
 	cv2.waitKey()
-	#cv2.destroyAllWindows()
+	cv2.destroyAllWindows()
+
+def done():
+	print("Any key to continue")
+	cv2.waitKey()
+	cv2.destroyAllWindows()
+	exit(0)
 
 # This function marks the locations of the face for face identification.
 # The red dots are part of the 68 point ID and the blue point is the
@@ -145,6 +151,8 @@ image1 = cv2.imread(args["image1"])
 image1 = imutils.resize(image1, width=600)
 #cv2.imshow("Image1", image1)
 small_faces = face_recognition.face_locations(image1)
+print(len(small_faces))
+print(small_faces)
 for each in small_faces:
 	# This increases the bounds of the found face images, sometimes features
 	# are cut off when face_recognition.face_locations() is run
@@ -163,10 +171,14 @@ rgb1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
 images2 = []
 image2 = cv2.imread(args["image2"])
 image2 = imutils.resize(image2, width=600)
-#cv2.imshow("Image2", image2)
+show_image("image_2", image2)
 small_faces = face_recognition.face_locations(image2)
+print(len(small_faces))
+print(small_faces)
 for each in small_faces:
-	temp = cv2.resize(image2[each[0]-boundary_extension:each[2]+boundary_extension, each[3]-boundary_extension:each[1]+boundary_extension], (image_size, image_size))
+	# if the original file is already reduced, the boundary_extension code will break it
+	image2 = image2[each[0]-boundary_extension:each[2]+boundary_extension, each[3]-boundary_extension:each[1]+boundary_extension]
+	temp = cv2.resize(image2, (image_size, image_size))
 	temp = translate_face(temp)
 	temp = rotate_face(temp)
 	images2.append(temp)
@@ -190,8 +202,6 @@ rgb2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
 
 for image in images2:
 	show_image("temp", mark_faces(image))
-
-#exit(0)
 
 # detect the (x, y)-coordinates of the bounding boxes corresponding
 # to each face in the input image, then compute the facial embeddings

@@ -15,6 +15,9 @@ import pickle
 import cv2
 import math
 import numpy
+import statistics
+from shapely.geometry import LineString
+import copy
 
 # size of the picture frame (image_size x image_size)
 image_size = 300
@@ -32,10 +35,15 @@ def show_image(name, image):
 	cv2.waitKey()
 	#cv2.destroyAllWindows()
 
+def save_image(name, image):
+	print("[INFO] image saved to " + out_path + name)
+	cv2.imwrite(out_path + name + ".jpg", image)
+
 # This function marks the locations of the face for face identification.
 # The red dots are part of the 68 point ID and the blue point is the
 # center of the image
 def mark_faces(image):
+	image = copy.deepcopy(image)
 	landmarks = face_recognition.face_landmarks(image)[0]
 	#print(landmarks)
 
@@ -120,7 +128,120 @@ def rotate_face(image, iterations=3):
 
 	return image
 
+def process_face(image_file):
+	print("[INFO] loading and processing " + image_file + "...")
+	image = cv2.imread(image_file)
+	image = imutils.resize(image, width=600)
+	#show_image("orig process_face " + image_file, image)
+	face_boundaries = face_recognition.face_locations(image)[0]
+	image = cv2.resize(image[face_boundaries[0]-boundary_extension:face_boundaries[2]+boundary_extension, face_boundaries[3]-boundary_extension:face_boundaries[1]+boundary_extension], (image_size, image_size))
+	image = translate_face(image)
+	image = rotate_face(image)
+	#show_image("new process_face " + image_file, image)
+	return image
 
+def chin_overflow(box, color_ref_point):
+	delta_x = box['a'][0] - box['v'][0]
+	delta_y = box['a'][1] - box['v'][1]
+
+	print("box: " + str(box))
+	print("color reference point: " + str(color_ref_point))
+
+	if delta_x > 0:
+		print("DEBUG 1")
+		box['a'][0] += 10
+		color_ref_point[0] += 10
+	else:
+		print("DEBUG 2")
+		box['a'][0] -= 10
+		color_ref_point[0] -= 10
+	if delta_y > 0:
+		print("DEBUG 3")
+		box['a'][1] += 10
+		color_ref_point[1] += 10
+	else:
+		print("DEBUG 4")
+		box['a'][1] -= 10
+		color_ref_point[1] -= 10
+
+	print("new box: " + str(box))
+	print("new color reference point: " + str(color_ref_point))
+		
+	return (box, color_ref_point)
+
+
+def chin(attacker, victim, attacker_chin, victim_chin):
+	#print(attacker)
+	#print(victim)
+	print(attacker_chin)
+	print(victim_chin)
+
+	last_attacker_ref_point = []
+	last_attacker_ref_point_orig = []
+	last_victim_ref_point = []
+
+	save_image("attacker_pre", mark_faces(attacker))
+
+	for point in range(len(attacker_chin)):
+
+		box = {'a': list(attacker_chin[point]), 'v': list(victim_chin[point])}
+
+		if point == 0:
+			last_attacker_ref_point_orig = [box['a'][0], box['a'][1]]
+			box, _ = chin_overflow(box, [0,0])
+			last_attacker_ref_point = box['a']
+			print("\n")
+			print(last_attacker_ref_point_orig, last_attacker_ref_point)
+			print("\n")
+			last_victim_ref_point = victim_chin[point]
+			print(last_attacker_ref_point)
+			print(last_victim_ref_point)
+			continue
+
+		print("COORDINATES: ", str(box['a'][0]) + "  " + str(last_attacker_ref_point_orig[0]) + "  " + str(box['a'][1]) + "  " + str(last_attacker_ref_point_orig[1]))
+		color_ref_point = [int(statistics.mean([attacker_chin[point][0], last_attacker_ref_point_orig[0]])), int(statistics.mean([attacker_chin[point][1], last_attacker_ref_point_orig[1]]))]
+		print("COLOR REFERENCE POINT: " + str(color_ref_point))
+		color_ref_point = [int(   (box['a'][0]+last_attacker_ref_point_orig[0])/2   )  ,  int(   (box['a'][1]+last_attacker_ref_point_orig[1])/2   )]
+		print("NEW COLOR REFERENCE POINT: " + str(color_ref_point))
+
+		last_attacker_ref_point_orig = [box['a'][0], box['a'][1]]
+		box, color_ref_point = chin_overflow(box, color_ref_point)
+		
+		#print("Color reference point: " + str(color_ref_point))
+		color_ref = attacker[color_ref_point[1]][color_ref_point[0]]
+		print("Color ref: " + str(color_ref))
+		print([last_attacker_ref_point, last_victim_ref_point, box['v'], box['a']])
+
+		poly = numpy.array( [[last_attacker_ref_point, last_victim_ref_point, box['v'], box['a']]], dtype=numpy.int32 )
+		color_ref = tuple(int(num) for num in color_ref)
+		cv2.fillPoly(attacker, poly, tuple(color_ref))
+		#cv2.fillPoly(attacker, poly, (255,255,255))
+
+		last_attacker_ref_point = box['a']
+		last_victim_ref_point = victim_chin[point]
+
+		if point == 16:
+			save_image("attacker_post", attacker)
+
+			done()
+
+
+def transpose_face(attacker, victim):
+	#save_image("attacker", mark_faces(attacker))
+	#save_image("victim", mark_faces(victim))
+	attacker_landmarks = face_recognition.face_landmarks(attacker)[0]
+	victim_landmarks = face_recognition.face_landmarks(victim)[0]
+
+	chin(attacker, victim, attacker_landmarks["chin"], victim_landmarks["chin"])
+	#face_contours(attacker, victim, attacker_landmarks["chin"], victim_landmarks["chin"])
+	#final_chin(attacker, victim, attacker_landmarks["chin"], victim_landmarks["chin"])
+
+
+def done():
+	print("Any key to continue")
+	cv2.waitKey()
+	cv2.destroyAllWindows()
+	exit(0)
 
 # construct the argument parser and parse the arguments
 ap = argparse.ArgumentParser()
@@ -138,34 +259,14 @@ args = vars(ap.parse_args())
 print("[INFO] loading encodings...")
 data = pickle.loads(open(args["encodings"], "rb").read())
 
-print("[INFO] loading and processing face 1...")
-# load the input image and convert it from BGR to RGB
-image1 = cv2.imread(args["image1"])
-image1 = imutils.resize(image1, width=600)
-#show_image("orig first image", image1)
-face_boundaries = face_recognition.face_locations(image1)[0]
-image1 = cv2.resize(image1[face_boundaries[0]-boundary_extension:face_boundaries[2]+boundary_extension, face_boundaries[3]-boundary_extension:face_boundaries[1]+boundary_extension], (image_size, image_size))
-image1 = translate_face(image1)
-image1 = rotate_face(image1)
-#show_image("first image", image1)
-#cv2.imwrite(out_path + "first_image.jpg", each)
+image1 = process_face(args["image1"])
 rgb1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
-
-#exit(0)
-
-print("[INFO] loading and processing face 2...")
-# load the second image
-image2 = cv2.imread(args["image2"])
-image2 = imutils.resize(image2, width=600)
-#show_image("orig second image", image1)
-face_boundaries = face_recognition.face_locations(image2)[0]
-image2 = cv2.resize(image2[face_boundaries[0]-boundary_extension:face_boundaries[2]+boundary_extension, face_boundaries[3]-boundary_extension:face_boundaries[1]+boundary_extension], (image_size, image_size))
-image2 = translate_face(image2)
-image2 = rotate_face(image2)
-#show_image("second image", image2)
+image2 = process_face(args["image2"])
 rgb2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
 
-#exit(0)
+transpose_face(image1, image2)
+
+done()
 
 # detect the (x, y)-coordinates of the bounding boxes corresponding
 # to each face in the input image, then compute the facial embeddings
@@ -233,6 +334,74 @@ for ((top, right, bottom, left), name) in zip(boxes, names):
 # show the output image
 cv2.imshow("Image1", image1)
 """
-print("Any key to continue")
-cv2.waitKey()
-cv2.destroyAllWindows()
+done()
+
+
+
+def face_contours(attacker, victim, attacker_chin, victim_chin):
+	print(attacker_chin)
+	print(victim_chin)
+
+	last_attacker_ref_point = []
+	last_victim_ref_point = []
+
+	save_image("attacker_pre", mark_faces(attacker))
+
+	for point in range(len(attacker_chin)):
+
+		if point == 0:
+			last_attacker_ref_point = attacker_chin[point]
+			last_victim_ref_point = victim_chin[point]
+			continue
+		
+		attacker_line = []
+		ls = LineString([tuple(last_attacker_ref_point), tuple(attacker_chin[point])])
+		for f in range(0, int(math.ceil(ls.length)) + 1):
+			p = ls.interpolate(f).coords[0]
+			pr = map(round, p)
+			attacker_line.append(list(pr))
+
+		victim_line = []
+		ls = LineString([tuple(last_victim_ref_point), tuple(victim_chin[point])])
+		for f in range(0, int(math.ceil(ls.length)) + 1):
+			p = ls.interpolate(f).coords[0]
+			pr = map(round, p)
+			victim_line.append(list(pr))
+
+		print("round: " + str(point))
+		print(len(victim_line))
+		print(len(attacker_line))
+		#for i in range(len(attacker_line))
+
+		#done()
+
+		last_attacker_ref_point = attacker_chin[point]
+		last_victim_ref_point = victim_chin[point]
+	done()
+
+
+
+def final_chin(attacker, victim, attacker_chin, victim_chin):
+	print(attacker_chin)
+	print(victim_chin)
+
+	last_attacker_ref_point = []
+	last_victim_ref_point = []
+
+	save_image("attacker_pre", mark_faces(attacker))
+
+	for point in range(len(attacker_chin)):
+
+		if point == 0:
+			last_attacker_ref_point = attacker_chin[point]
+			last_victim_ref_point = victim_chin[point]
+			continue
+		
+		#mask = numpy.zeros((attacker.shape[:-1]), dtype=numpy.uint8)
+		box = numpy.array( [[last_attacker_ref_point, last_victim_ref_point, victim_chin[point], attacker_chin[point]]], dtype=numpy.int32 )
+		cv2.fillPoly(attacker, box, (255, 255, 255))
+
+		if point == 1:
+			save_image("attacker_post", mark_faces(attacker))
+
+			done()

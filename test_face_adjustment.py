@@ -1,12 +1,11 @@
-# test_uniqueness.py
-# This is test code to compare the similarity of the 128 embeddings
-# between different pictures.  Faces are reduced to a 300x300 pixel
-# image of only the face and sent through the face_recognition.compare_faces()
-# function in face_recognition/api.py  I edited the compare_faces()
-# function to print out successful authentication.
+# test_face_adjustment.py
+# This is test code to alter an attacker's image to spoof a victim.
+# Make sure that images provided as input only have one face in them.
+# The code will still work but you won't have control over which face
+# is chosen to compare/alter
 
 # example usage:
-# python test_uniqueness.py --encodings encodings.pickle --image1 michael_pics/alec1.jpg --image2 michael_pics/adrian1.jpg
+# python test_face_adjustment.py --encodings encodings.pickle --image1 michael_pics/alec1.jpg --image2 michael_pics/adrian1.jpg
 
 # USAGE
 # python recognize_faces_image.py --encodings encodings.pickle --image examples/example_01.png 
@@ -131,9 +130,9 @@ ap = argparse.ArgumentParser()
 ap.add_argument("-e", "--encodings", required=True,
 	help="path to serialized db of facial encodings")
 ap.add_argument("-i", "--image1", required=True,
-	help="path to first input image")
+	help="path to first input image (victim)")
 ap.add_argument("-j", "--image2", required=True,
-	help="path to second input image")
+	help="path to second input image (attacker)")
 ap.add_argument("-d", "--detection-method", type=str, default="cnn",
 	help="face detection model to use: either `hog` or `cnn`")
 args = vars(ap.parse_args())
@@ -191,8 +190,7 @@ for images in images2:
 	count += 1
 rgb2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
 
-for image in images2:
-	show_image("temp", mark_faces(image))
+show_image("temp", mark_faces(images2[0]))
 
 #exit(0)
 

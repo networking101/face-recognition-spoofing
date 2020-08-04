@@ -8,9 +8,6 @@
 # example usage:
 # python test_uniqueness.py --encodings encodings.pickle --image1 michael_pics/alec1.jpg --image2 michael_pics/adrian1.jpg
 
-# USAGE
-# python recognize_faces_image.py --encodings encodings.pickle --image examples/example_01.png 
-
 # import the necessary packages
 import face_recognition
 import argparse

@@ -7,9 +7,6 @@
 # example usage:
 # python test_face_adjustment.py --encodings encodings.pickle --image1 michael_pics/alec1.jpg --image2 michael_pics/adrian1.jpg
 
-# USAGE
-# python recognize_faces_image.py --encodings encodings.pickle --image examples/example_01.png 
-
 # import the necessary packages
 import face_recognition
 import argparse
@@ -141,73 +138,51 @@ args = vars(ap.parse_args())
 print("[INFO] loading encodings...")
 data = pickle.loads(open(args["encodings"], "rb").read())
 
+print("[INFO] loading and processing face 1...")
 # load the input image and convert it from BGR to RGB
-images1 = []
 image1 = cv2.imread(args["image1"])
 image1 = imutils.resize(image1, width=600)
-#cv2.imshow("Image1", image1)
-small_faces = face_recognition.face_locations(image1)
-for each in small_faces:
-	# This increases the bounds of the found face images, sometimes features
-	# are cut off when face_recognition.face_locations() is run
-	images1.append(cv2.resize(image1[each[0]-boundary_extension:each[2]+boundary_extension, each[3]-boundary_extension:each[1]+boundary_extension], (image_size, image_size)))
-# Debug printing, do not delete
-"""
-count = 0
-for each in images1:
-	cv2.imwrite(out_path + "face1_" + str(count) + ".jpg", each)
-	show_image(image)
-	count += 1
-"""
+#show_image("orig first image", image1)
+face_boundaries = face_recognition.face_locations(image1)[0]
+image1 = cv2.resize(image1[face_boundaries[0]-boundary_extension:face_boundaries[2]+boundary_extension, face_boundaries[3]-boundary_extension:face_boundaries[1]+boundary_extension], (image_size, image_size))
+image1 = translate_face(image1)
+image1 = rotate_face(image1)
+#show_image("first image", image1)
+#cv2.imwrite(out_path + "first_image.jpg", each)
 rgb1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
 
+#exit(0)
+
+print("[INFO] loading and processing face 2...")
 # load the second image
-images2 = []
 image2 = cv2.imread(args["image2"])
 image2 = imutils.resize(image2, width=600)
-#cv2.imshow("Image2", image2)
-small_faces = face_recognition.face_locations(image2)
-for each in small_faces:
-	temp = cv2.resize(image2[each[0]-boundary_extension:each[2]+boundary_extension, each[3]-boundary_extension:each[1]+boundary_extension], (image_size, image_size))
-	temp = translate_face(temp)
-	temp = rotate_face(temp)
-	images2.append(temp)
-	
-count = 0
-for images in images2:
-	#show_image(images)
-	#cv2.imwrite(out_path + "face2_" + str(count) + ".jpg", images)
-	# These are my notes for debugging, do not delete
-	"""
-	# first dimension is y axis
-	print(len(images))
-	# second dimension is x axis
-	print(len(images[0]))
-	# third dimension is bgr
-	print(len(images[0][0]))
-	print(images)
-	"""
-	count += 1
+#show_image("orig second image", image1)
+face_boundaries = face_recognition.face_locations(image2)[0]
+image2 = cv2.resize(image2[face_boundaries[0]-boundary_extension:face_boundaries[2]+boundary_extension, face_boundaries[3]-boundary_extension:face_boundaries[1]+boundary_extension], (image_size, image_size))
+image2 = translate_face(image2)
+image2 = rotate_face(image2)
+#show_image("second image", image2)
 rgb2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
-
-show_image("temp", mark_faces(images2[0]))
 
 #exit(0)
 
 # detect the (x, y)-coordinates of the bounding boxes corresponding
 # to each face in the input image, then compute the facial embeddings
 # for each face
-print("[INFO] recognizing faces for image 1...")
+print("[INFO] generating embeddings for face 1...")
 boxes1 = face_recognition.face_locations(rgb1,
 	model=args["detection_method"])
 encodings1 = face_recognition.face_encodings(rgb1, boxes1)
 
 # same for second image
-print("[INFO] recognizing faces for image 2...")
+print("[INFO] generating embeddings for face 2...")
 boxes2 = face_recognition.face_locations(rgb2,
 	model=args["detection_method"])
 encodings2 = face_recognition.face_encodings(rgb2, boxes2)
 
+# run the face_recognition.compare_faces() function to match faces
+print("[INFO] comparing faces...")
 for encoding2 in encodings2:
 	match = face_recognition.compare_faces(encodings1, encoding2, .6)
 print(match)

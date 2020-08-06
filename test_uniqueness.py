@@ -33,6 +33,10 @@ def show_image(name, image):
 	cv2.waitKey()
 	cv2.destroyAllWindows()
 
+def save_image(name, image):
+	print("[INFO] image saved to " + out_path + name)
+	cv2.imwrite(out_path + name + ".jpg", image)
+
 def done():
 	print("Any key to continue")
 	cv2.waitKey()
@@ -151,8 +155,6 @@ image1 = cv2.imread(args["image1"])
 image1 = imutils.resize(image1, width=600)
 #cv2.imshow("Image1", image1)
 small_faces = face_recognition.face_locations(image1)
-print(len(small_faces))
-print(small_faces)
 for each in small_faces:
 	# This increases the bounds of the found face images, sometimes features
 	# are cut off when face_recognition.face_locations() is run
@@ -171,13 +173,12 @@ rgb1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
 images2 = []
 image2 = cv2.imread(args["image2"])
 image2 = imutils.resize(image2, width=600)
-show_image("image_2", image2)
+save_image("unique", mark_faces(image2))
+#show_image("image_2", image2)
 small_faces = face_recognition.face_locations(image2)
-print(len(small_faces))
-print(small_faces)
 for each in small_faces:
 	# if the original file is already reduced, the boundary_extension code will break it
-	image2 = image2[each[0]-boundary_extension:each[2]+boundary_extension, each[3]-boundary_extension:each[1]+boundary_extension]
+	#image2 = image2[each[0]-boundary_extension:each[2]+boundary_extension, each[3]-boundary_extension:each[1]+boundary_extension]
 	temp = cv2.resize(image2, (image_size, image_size))
 	temp = translate_face(temp)
 	temp = rotate_face(temp)
@@ -185,7 +186,7 @@ for each in small_faces:
 	
 count = 0
 for images in images2:
-	#show_image(images)
+	#show_image("name", images)
 	#cv2.imwrite(out_path + "face2_" + str(count) + ".jpg", images)
 	# These are my notes for debugging, do not delete
 	"""
@@ -199,9 +200,6 @@ for images in images2:
 	"""
 	count += 1
 rgb2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
-
-for image in images2:
-	show_image("temp", mark_faces(image))
 
 # detect the (x, y)-coordinates of the bounding boxes corresponding
 # to each face in the input image, then compute the facial embeddings

@@ -50,16 +50,6 @@ for i in range(len(image1)):
             same += 1
 
 show_image("check_difference", image2)
-"""
-same = 0
-diff = 0
-for i in range(len(image1)):
-    for j in range(len(image1[0])):
-        if image1[i][j].all() == image2[i][j].all():
-            same += 1
-        else:
-            diff += 1
-"""
 tot = same + diff
 print("Total pixels: " + str(tot) + "\tSame: " + str(same) + "\tDiff: " + str(diff))
 

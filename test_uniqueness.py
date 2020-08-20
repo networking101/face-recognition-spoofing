@@ -16,6 +16,7 @@ import pickle
 import cv2
 import math
 import numpy
+import copy
 
 # size of the picture frame (image_size x image_size)
 image_size = 300
@@ -47,6 +48,7 @@ def done():
 # The red dots are part of the 68 point ID and the blue point is the
 # center of the image
 def mark_faces(image):
+	image = copy.deepcopy(image)
 	landmarks = face_recognition.face_landmarks(image)[0]
 	#print(landmarks)
 
@@ -132,6 +134,11 @@ def rotate_face(image, iterations=3):
 	return image
 
 
+def chin_blackout(image, chin_points):
+	v_chin_points = [[x,y] for x, y in chin_points]
+	v_chin_points += [[image_size, 0], [image_size, image_size], [0, image_size], [0, 0]]
+	poly = numpy.array( [v_chin_points], dtype=numpy.int32 )
+	cv2.fillPoly(image, poly, (0, 0, 0))
 
 # construct the argument parser and parse the arguments
 ap = argparse.ArgumentParser()
@@ -158,47 +165,35 @@ small_faces = face_recognition.face_locations(image1)
 for each in small_faces:
 	# This increases the bounds of the found face images, sometimes features
 	# are cut off when face_recognition.face_locations() is run
-	images1.append(cv2.resize(image1[each[0]-boundary_extension:each[2]+boundary_extension, each[3]-boundary_extension:each[1]+boundary_extension], (image_size, image_size)))
-# Debug printing, do not delete
-"""
-count = 0
-for each in images1:
-	cv2.imwrite(out_path + "face1_" + str(count) + ".jpg", each)
-	show_image(image)
-	count += 1
-"""
+	temp = image1[each[0]-boundary_extension:each[2]+boundary_extension, each[3]-boundary_extension:each[1]+boundary_extension]
+	try:
+		temp = cv2.resize(temp, (image_size, image_size))
+	except:
+		temp = cv2.resize(image1, (image_size, image_size))
+	temp = translate_face(temp)
+	temp = rotate_face(temp)
+	images1.append(temp)
+save_image("validate_image_1", image1)
 rgb1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
 
 # load the second image
 images2 = []
 image2 = cv2.imread(args["image2"])
 image2 = imutils.resize(image2, width=600)
-save_image("unique", mark_faces(image2))
+save_image("marked_up_image2", mark_faces(image2))
 #show_image("image_2", image2)
 small_faces = face_recognition.face_locations(image2)
 for each in small_faces:
 	# if the original file is already reduced, the boundary_extension code will break it
-	#image2 = image2[each[0]-boundary_extension:each[2]+boundary_extension, each[3]-boundary_extension:each[1]+boundary_extension]
-	temp = cv2.resize(image2, (image_size, image_size))
+	temp = image2[each[0]-boundary_extension:each[2]+boundary_extension, each[3]-boundary_extension:each[1]+boundary_extension]
+	try:
+		temp = cv2.resize(temp, (image_size, image_size))
+	except:
+		temp = cv2.resize(image2, (image_size, image_size))
 	temp = translate_face(temp)
 	temp = rotate_face(temp)
 	images2.append(temp)
-	
-count = 0
-for images in images2:
-	#show_image("name", images)
-	#cv2.imwrite(out_path + "face2_" + str(count) + ".jpg", images)
-	# These are my notes for debugging, do not delete
-	"""
-	# first dimension is y axis
-	print(len(images))
-	# second dimension is x axis
-	print(len(images[0]))
-	# third dimension is bgr
-	print(len(images[0][0]))
-	print(images)
-	"""
-	count += 1
+save_image("validate_image_2", image2)
 rgb2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
 
 # detect the (x, y)-coordinates of the bounding boxes corresponding

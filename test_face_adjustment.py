@@ -133,6 +133,15 @@ def rotate_face(image, iterations=3):
 
 	return image
 
+# Find the euclidean distance between 2 points. point_a(x, y) and point_b(x, y)
+def find_distance(point_a, point_b):
+	dist = 0
+
+	dist = math.sqrt((point_a[0] - point_b[0])**2 + (point_a[0] - point_b[0])**2)
+	print("DISTANCE: " + str(dist))
+
+	return dist
+
 def process_face(image_file):
 	print("[INFO] loading and processing " + image_file + "...")
 	image = cv2.imread(image_file)
@@ -145,87 +154,80 @@ def process_face(image_file):
 	#save_image("new_mark_face", mark_faces(image))
 	return image
 
+
+# create a black boundary around the chin of the attacker image
+def chin_blackout(attacker, victim_chin):
+	v_chin_points = [[x,y] for x, y in victim_chin]
+	v_chin_points += [[image_size, 0], [image_size, image_size], [0, image_size], [0, 0]]
+	poly = numpy.array( [v_chin_points], dtype=numpy.int32 )
+	cv2.fillPoly(attacker, poly, (0, 0, 0))
+
+
 def chin_overflow(box, color_ref_point):
 	delta_x = box['a'][0] - box['v'][0]
 	delta_y = box['a'][1] - box['v'][1]
 
-	#print("box: " + str(box))
-	#print("color reference point: " + str(color_ref_point))
-
 	if delta_x > 0:
 		box['a'][0] += 10
 		color_ref_point[0] += 10
-	else:
+	elif delta_x < 0:
 		box['a'][0] -= 10
 		color_ref_point[0] -= 10
 	if delta_y > 0:
 		box['a'][1] += 10
 		color_ref_point[1] += 10
-	else:
+	elif delta_y < 0:
 		box['a'][1] -= 10
 		color_ref_point[1] -= 10
-
-	#print("new box: " + str(box))
-	#print("new color reference point: " + str(color_ref_point))
 		
 	return (box, color_ref_point)
 
+# modify the attacker's chin to match the victim's shape
+# For each iteration, a polygon in made from the following points [attacker-1, attacker, victim, victim-1]
+# If the victim's chin is smaller, a black border is extended on the attacker's jaw to the edge of the victim's jawline position
+# If the victim's chin is larger, a color is found halfway between the points attacker and attacker-1 on the attacker's jaw.  This color is extended to the victim's chin shape
+def chin_adjust(attacker, victim, attacker_chin, victim_chin):
 
-def chin(attacker, victim, attacker_chin, victim_chin):
-	#print(attacker)
-	#print(victim)
-	#print(attacker_chin)
-	#print(victim_chin)
-
+	# last_attacker_ref_point is the last adjusted position for the attacker's chin
 	last_attacker_ref_point = []
+	# last_attacker_ref_point_orig is the last original position for the attacker's chin
 	last_attacker_ref_point_orig = []
+	# last_victim_ref_point is the last adjusted position for the victim's chin
 	last_victim_ref_point = []
 
-	#save_image("attacker_pre", mark_faces(attacker))
-
+	# loop through every point of the chin to make adjustments
 	for point in range(len(attacker_chin)):
 
+		# box contains a dictionary of the attacker's chin points and victim's chin points
 		box = {'a': list(attacker_chin[point]), 'v': list(victim_chin[point])}
 
+		# for the first point, we do not have a last reference.  This iteration just finds the points on the attacker's face and adjusts
 		if point == 0:
-			last_attacker_ref_point_orig = [box['a'][0], box['a'][1]]
+			#last_attacker_ref_point_orig = [box['a'][0], box['a'][1]]
+			last_attacker_ref_point_orig = box['a']
 			box, _ = chin_overflow(box, [0,0])
 			last_attacker_ref_point = box['a']
-			#print("\n")
-			#print(last_attacker_ref_point_orig, last_attacker_ref_point)
-			#print("\n")
 			last_victim_ref_point = victim_chin[point]
-			#print(last_attacker_ref_point)
-			#print(last_victim_ref_point)
 			continue
 
-		#print("COORDINATES: ", str(box['a'][0]) + "  " + str(last_attacker_ref_point_orig[0]) + "  " + str(box['a'][1]) + "  " + str(last_attacker_ref_point_orig[1]))
+		# This point is found as the midpoint of the line between points attacker and attacker-1
 		color_ref_point = [int(statistics.mean([attacker_chin[point][0], last_attacker_ref_point_orig[0]])), int(statistics.mean([attacker_chin[point][1], last_attacker_ref_point_orig[1]]))]
-		#print("COLOR REFERENCE POINT: " + str(color_ref_point))
-		color_ref_point = [int(   (box['a'][0]+last_attacker_ref_point_orig[0])/2   )  ,  int(   (box['a'][1]+last_attacker_ref_point_orig[1])/2   )]
-		#print("NEW COLOR REFERENCE POINT: " + str(color_ref_point))
 
+		# save the original attacker's last reference point, we need the non-adjusted point for the next calculation
 		last_attacker_ref_point_orig = [box['a'][0], box['a'][1]]
+		# chin_overflow returns the adjusted color_point_reference to get a better skin tone
+		# If we pull the color from a point on the jawline, the color might not match the attacker's skin tone,
+		# or it may not be entirely black, we need to call chin_overflow to move the reference point in or out to get a good color.
 		box, color_ref_point = chin_overflow(box, color_ref_point)
-		
-		#print("Color reference point: " + str(color_ref_point))
 		color_ref = attacker[color_ref_point[1]][color_ref_point[0]]
-		#print("Color ref: " + str(color_ref))
-		#print([last_attacker_ref_point, last_victim_ref_point, box['v'], box['a']])
 
+		# generate a polygon of the 4 points
 		poly = numpy.array( [[last_attacker_ref_point, last_victim_ref_point, box['v'], box['a']]], dtype=numpy.int32 )
 		color_ref = tuple(int(num) for num in color_ref)
 		cv2.fillPoly(attacker, poly, tuple(color_ref))
-		#cv2.fillPoly(attacker, poly, (255,255,255))
 
 		last_attacker_ref_point = box['a']
 		last_victim_ref_point = victim_chin[point]
-
-		#if point == 16:
-	#save_image("attacker_post", attacker)
-	#show_image("attacker_post", attacker)
-
-	#done()
 
 
 def eyes(attacker, victim, attacker_eye, victim_eye):
@@ -334,12 +336,20 @@ def nose_cut(attacker, attacker_nose_bridge, attacker_nose_tip):
 	# crop the image to just the size of the rectangle
 	attacker_croped_nose_tip = attacker[anty:anty+anth, antx:antx+antw].copy()
 
+	# get a polygon of the attacker's old nose and cover up with a neutral color
+	nose_poly = numpy.array( [[a_top_bridge, a_left_bridge, [a_top_left_tip[0], a_bottom_right_tip[1]], a_bottom_right_tip, a_right_bridge]], dtype=numpy.int32 )
+	color_ref = attacker[attacker_nose_bridge[0][1]][attacker_nose_bridge[0][0]]
+	color_ref = tuple(int(num) for num in color_ref)
+	cv2.fillPoly(attacker, nose_poly, color_ref)
+
 	return (attacker_croped_nose_bridge, attacker_croped_nose_tip)
 
 def nose_paste(attacker, victim, victim_nose_bridge, victim_nose_tip, attacker_nose_bridge_cut, attacker_nose_tip_cut):
 	# turn tuple list into list list
 	victim_nose_bridge = [[x,y] for x,y in victim_nose_bridge]
 	victim_nose_tip = [[x,y] for x,y in victim_nose_tip]
+
+	# Cover up attacker's old nose
 
 	# get nose tip width
 	v_nose_tip_width = victim_nose_tip[4][0] - victim_nose_tip[0][0]
@@ -436,6 +446,12 @@ def mouth_cut(attacker, attacker_top_lip, attacker_bottom_lip):
 	# crop the image to just the size of the rectangle
 	attacker_croped_bottom_lip = attacker[ably:ably+ablh, ablx:ablx+ablw].copy()
 
+	# get a polygon of the attacker's old mouth and cover up with a neutral color
+	mouth_poly = numpy.array( [[a_top_left_top_lip, [a_top_left_top_lip[0], a_bottom_right_bottom_lip[1]], a_bottom_right_bottom_lip, [a_bottom_right_bottom_lip[0], a_top_left_top_lip[1]]]], dtype=numpy.int32 )
+	color_ref = attacker[a_bottom_right_bottom_lip[1]][a_bottom_right_bottom_lip[0]]
+	color_ref = tuple(int(num) for num in color_ref)
+	cv2.fillPoly(attacker, mouth_poly, color_ref)
+
 	return (attacker_croped_top_lip, attacker_croped_bottom_lip)
 	
 
@@ -499,33 +515,29 @@ def blank_face(image, landmarks, color_ref):
 
 
 def transpose_face(attacker, victim):
-	#save_image("attacker", mark_faces(attacker))
-	#save_image("victim", mark_faces(victim))
 	attacker_landmarks = face_recognition.face_landmarks(attacker)[0]
 	victim_landmarks = face_recognition.face_landmarks(victim)[0]
-	print("Attacker")
-	print(attacker_landmarks)
-	print("Victim")
-	print(victim_landmarks)
+	#print("Attacker")
+	#print(attacker_landmarks)
+	#print("Victim")
+	#print(victim_landmarks)
 
 	# grab a color reference, this will be the default color we use when we need to cover up features
-	color_ref = get_color(attacker, attacker_landmarks["nose_bridge"][1])
+	#color_ref = get_color(attacker, attacker_landmarks["nose_bridge"][1])
 
 	# start grabing features we will need for later
 	attacker_nose_bridge_cut, attacker_nose_tip_cut = nose_cut(attacker, attacker_landmarks["nose_bridge"], attacker_landmarks["nose_tip"])
 	attacker_mouth_top_cut, attacker_mouth_bottom_cut = mouth_cut(attacker, attacker_landmarks["top_lip"], attacker_landmarks["bottom_lip"])
 	
-
-	chin(attacker, victim, attacker_landmarks["chin"], victim_landmarks["chin"])
-	# wipe the face
-	#blank_face(attacker, attacker_landmarks, color_ref)
+	chin_blackout(attacker, victim_landmarks["chin"])
+	chin_adjust(attacker, victim, attacker_landmarks["chin"], victim_landmarks["chin"])
 
 	mouth_paste(attacker, victim, victim_landmarks["top_lip"], victim_landmarks["bottom_lip"], attacker_mouth_top_cut, attacker_mouth_bottom_cut)
 	nose_paste(attacker, victim, victim_landmarks["nose_bridge"], victim_landmarks["nose_tip"], attacker_nose_bridge_cut, attacker_nose_tip_cut)	
 
 	attacker = eyes(attacker, victim, attacker_landmarks["right_eye"], victim_landmarks["right_eye"])
 	attacker = eyes(attacker, victim, attacker_landmarks["left_eye"], victim_landmarks["left_eye"])
-	save_image("BBBBBBBBBBBBBBBB", attacker)
+	save_image("spoofed_image", attacker)
 	done()
 	
 

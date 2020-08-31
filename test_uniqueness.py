@@ -8,9 +8,6 @@
 # example usage:
 # python test_uniqueness.py --encodings encodings.pickle --image1 michael_pics/alec1.jpg --image2 michael_pics/adrian1.jpg
 
-# USAGE
-# python recognize_faces_image.py --encodings encodings.pickle --image examples/example_01.png 
-
 # import the necessary packages
 import face_recognition
 import argparse
@@ -19,6 +16,7 @@ import pickle
 import cv2
 import math
 import numpy
+import copy
 
 # size of the picture frame (image_size x image_size)
 image_size = 300
@@ -34,12 +32,23 @@ def show_image(name, image):
 	print("Press any key to continue")
 	cv2.imshow(name, image)
 	cv2.waitKey()
-	#cv2.destroyAllWindows()
+	cv2.destroyAllWindows()
+
+def save_image(name, image):
+	print("[INFO] image saved to " + out_path + name)
+	cv2.imwrite(out_path + name + ".jpg", image)
+
+def done():
+	print("Any key to continue")
+	cv2.waitKey()
+	cv2.destroyAllWindows()
+	exit(0)
 
 # This function marks the locations of the face for face identification.
 # The red dots are part of the 68 point ID and the blue point is the
 # center of the image
 def mark_faces(image):
+	image = copy.deepcopy(image)
 	landmarks = face_recognition.face_landmarks(image)[0]
 	#print(landmarks)
 
@@ -47,7 +56,8 @@ def mark_faces(image):
 		for i in landmarks[key]:
 			cv2.circle(image, i, 2, (0,0,255), 2)
 
-	cv2.circle(image, (int(image_size/2), int(image_size/2)), 2, (255,0,0), 2)
+	h, w = image.shape[:2]
+	cv2.circle(image, (int(w/2), int(h/2)), 2, (255,0,0), 2)
 	
 	#show_image("marked_image", image)
 
@@ -125,6 +135,23 @@ def rotate_face(image, iterations=3):
 	return image
 
 
+def blur_face(spoofed_image, rounds=1):
+	print("[INFO] Bluring Spoofed Image...")
+
+	for i in range(rounds):
+		spoofed_image = cv2.pyrDown(spoofed_image)
+
+	for i in range(rounds):
+		spoofed_image = cv2.pyrUp(spoofed_image)
+
+	return spoofed_image
+
+
+def chin_blackout(image, chin_points):
+	v_chin_points = [[x,y] for x, y in chin_points]
+	v_chin_points += [[image_size, 0], [image_size, image_size], [0, image_size], [0, 0]]
+	poly = numpy.array( [v_chin_points], dtype=numpy.int32 )
+	cv2.fillPoly(image, poly, (0, 0, 0))
 
 # construct the argument parser and parse the arguments
 ap = argparse.ArgumentParser()
@@ -151,50 +178,36 @@ small_faces = face_recognition.face_locations(image1)
 for each in small_faces:
 	# This increases the bounds of the found face images, sometimes features
 	# are cut off when face_recognition.face_locations() is run
-	images1.append(cv2.resize(image1[each[0]-boundary_extension:each[2]+boundary_extension, each[3]-boundary_extension:each[1]+boundary_extension], (image_size, image_size)))
-# Debug printing, do not delete
-"""
-count = 0
-for each in images1:
-	cv2.imwrite(out_path + "face1_" + str(count) + ".jpg", each)
-	show_image(image)
-	count += 1
-"""
+	temp = image1[each[0]-boundary_extension:each[2]+boundary_extension, each[3]-boundary_extension:each[1]+boundary_extension]
+	try:
+		temp = cv2.resize(temp, (image_size, image_size))
+	except:
+		temp = cv2.resize(image1, (image_size, image_size))
+	temp = translate_face(temp)
+	temp = rotate_face(temp)
+	images1.append(temp)
+	break
 rgb1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
 
 # load the second image
 images2 = []
 image2 = cv2.imread(args["image2"])
 image2 = imutils.resize(image2, width=600)
-#cv2.imshow("Image2", image2)
+save_image("marked_up_image2", mark_faces(image2))
+#show_image("image_2", image2)
 small_faces = face_recognition.face_locations(image2)
 for each in small_faces:
-	temp = cv2.resize(image2[each[0]-boundary_extension:each[2]+boundary_extension, each[3]-boundary_extension:each[1]+boundary_extension], (image_size, image_size))
+	# if the original file is already reduced, the boundary_extension code will break it
+	temp = image2[each[0]-boundary_extension:each[2]+boundary_extension, each[3]-boundary_extension:each[1]+boundary_extension]
+	try:
+		temp = cv2.resize(temp, (image_size, image_size))
+	except:
+		temp = cv2.resize(image2, (image_size, image_size))
 	temp = translate_face(temp)
 	temp = rotate_face(temp)
 	images2.append(temp)
-	
-count = 0
-for images in images2:
-	#show_image(images)
-	#cv2.imwrite(out_path + "face2_" + str(count) + ".jpg", images)
-	# These are my notes for debugging, do not delete
-	"""
-	# first dimension is y axis
-	print(len(images))
-	# second dimension is x axis
-	print(len(images[0]))
-	# third dimension is bgr
-	print(len(images[0][0]))
-	print(images)
-	"""
-	count += 1
+	break
 rgb2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
-
-for image in images2:
-	show_image("temp", mark_faces(image))
-
-#exit(0)
 
 # detect the (x, y)-coordinates of the bounding boxes corresponding
 # to each face in the input image, then compute the facial embeddings

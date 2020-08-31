@@ -20,7 +20,7 @@ from shapely.geometry import LineString
 import copy
 
 # size of the picture frame (image_size x image_size)
-image_size = 300
+image_size = 512
 # how much to extend the image bounds returned by face capture.  The
 # face_recognition.face_locations() function will find a face but
 # sometimes features are cut off.  A value is chosen by trial and
@@ -28,6 +28,8 @@ image_size = 300
 boundary_extension = 50
 # path to output images.  Used for debugging
 out_path = "test_pic_output/"
+# size to extend to grab all eye features
+eye_bounds = 10
 
 def show_image(name, image):
 	print("Press any key to continue")
@@ -160,7 +162,7 @@ def chin_blackout(attacker, victim_chin):
 	v_chin_points = [[x,y] for x, y in victim_chin]
 	v_chin_points += [[image_size, 0], [image_size, image_size], [0, image_size], [0, 0]]
 	poly = numpy.array( [v_chin_points], dtype=numpy.int32 )
-	cv2.fillPoly(attacker, poly, (0, 0, 0))
+	cv2.fillPoly(attacker, poly, (255,255,255))
 
 
 def chin_overflow(box, color_ref_point):
@@ -187,6 +189,7 @@ def chin_overflow(box, color_ref_point):
 # If the victim's chin is smaller, a black border is extended on the attacker's jaw to the edge of the victim's jawline position
 # If the victim's chin is larger, a color is found halfway between the points attacker and attacker-1 on the attacker's jaw.  This color is extended to the victim's chin shape
 def chin_adjust(attacker, victim, attacker_chin, victim_chin):
+	print("[INFO] Adjusting Chin...")
 
 	# last_attacker_ref_point is the last adjusted position for the attacker's chin
 	last_attacker_ref_point = []
@@ -219,7 +222,11 @@ def chin_adjust(attacker, victim, attacker_chin, victim_chin):
 		# If we pull the color from a point on the jawline, the color might not match the attacker's skin tone,
 		# or it may not be entirely black, we need to call chin_overflow to move the reference point in or out to get a good color.
 		box, color_ref_point = chin_overflow(box, color_ref_point)
-		color_ref = attacker[color_ref_point[1]][color_ref_point[0]]
+		# TODO: need to fix this
+		try:
+			color_ref = attacker[color_ref_point[1]][color_ref_point[0]]
+		except:
+			color_ref = (0,0,0)
 
 		# generate a polygon of the 4 points
 		poly = numpy.array( [[last_attacker_ref_point, last_victim_ref_point, box['v'], box['a']]], dtype=numpy.int32 )
@@ -230,20 +237,15 @@ def chin_adjust(attacker, victim, attacker_chin, victim_chin):
 		last_victim_ref_point = victim_chin[point]
 
 
-def eyes(attacker, victim, attacker_eye, victim_eye):
-
-	eye_bounds = 5
+def eye_cut(attacker, attacker_eye):
 
 	# turn tuple list into list list
 	attacker_eye = [[x,y] for x,y in attacker_eye]
-	victim_eye = [[x,y] for x,y in victim_eye]
-	#show_image("attacker", attacker)
 
 	# grab a neutral color to cover up old eyes
-	color_ref = attacker[int((attacker_eye[4][1] + attacker_eye[5][1])/2) + 20][int((attacker_eye[4][0] + attacker_eye[5][0])/2)]
+	color_ref = attacker[int((attacker_eye[4][1] + attacker_eye[5][1])/2) + eye_bounds*2][int((attacker_eye[4][0] + attacker_eye[5][0])/2)]
 
 	are_pts = numpy.array(attacker_eye)
-	vre_pts = numpy.array(victim_eye)
 
 	# make a rectangle around all 6 eye points
 	are_rect = cv2.boundingRect(are_pts)
@@ -255,20 +257,21 @@ def eyes(attacker, victim, attacker_eye, victim_eye):
 
 	# crop the image to just the size of the rectangle
 	attacker_croped_eye = attacker[ary:ary+arh, arx:arx+arw].copy()
-	#show_image("attacker_croped_eye", attacker_croped_eye)
 
-	# cover up old eye
-	are_cover = []
-	are_cover.append([attacker_eye[0][0]-10, attacker_eye[0][1]])
-	are_cover.append([attacker_eye[1][0]-5, attacker_eye[1][1]-10])
-	are_cover.append([attacker_eye[2][0]+5, attacker_eye[2][1]-10])
-	are_cover.append([attacker_eye[3][0]+10, attacker_eye[3][1]])
-	are_cover.append([attacker_eye[4][0]+5, attacker_eye[4][1]+10])
-	are_cover.append([attacker_eye[5][0]-5, attacker_eye[5][1]+10])
-	# adjust size
-	poly = numpy.array( [are_cover], dtype=numpy.int32 )
+	# get a rectangle of the attacker's old eye and cover up with a neutral color
+	eye_poly = numpy.array( [[[arx, ary], [arx, ary + arh], [arx + arw, ary + arh], [arx + arw, ary]]], dtype=numpy.int32 )
 	color_ref = tuple(int(num) for num in color_ref)
-	cv2.fillPoly(attacker, poly, color_ref)
+	cv2.fillPoly(attacker, eye_poly, color_ref)
+
+	return attacker_croped_eye
+
+
+def eye_paste(attacker, victim_eye, attacker_croped_eye):
+	print("[INFO] Adjusting Eye...")
+
+	# turn tuple list into list list
+	victim_eye = [[x,y] for x,y in victim_eye]
+	vre_pts = numpy.array(victim_eye)
 
 	# find location of victim eye
 	vre_rect = cv2.boundingRect(vre_pts)
@@ -280,12 +283,10 @@ def eyes(attacker, victim, attacker_eye, victim_eye):
 
 	# crop attacker eye to victim eye size
 	attacker_croped_eye = cv2.resize(attacker_croped_eye, (vrw, vrh))
-	#show_image("attacker_croped_eye", attacker_croped_eye)
 
 	# copy new eye onto attackers face
 	attacker[vry:vry+vrh, vrx:vrx+vrw] = attacker_croped_eye
 
-	return attacker
 
 def nose_cut(attacker, attacker_nose_bridge, attacker_nose_tip):
 	# turn tuple list into list list
@@ -298,8 +299,8 @@ def nose_cut(attacker, attacker_nose_bridge, attacker_nose_tip):
 	# we want to get a triangle cut of the nose bridge to copy into a new location
 	# get nose bridge dimensions and modify dimensions to extend a bit past the nose tip in the x direction
 	a_top_bridge = attacker_nose_bridge[0]
-	a_left_bridge = [attacker_nose_tip[0][0] - int(a_nose_tip_width/2), attacker_nose_bridge[3][1]]
-	a_right_bridge = [attacker_nose_tip[4][0] + int(a_nose_tip_width/2), attacker_nose_bridge[3][1]]
+	a_left_bridge = [attacker_nose_tip[0][0] - int(a_nose_tip_width/4), attacker_nose_bridge[3][1]]
+	a_right_bridge = [attacker_nose_tip[4][0] + int(a_nose_tip_width/4), attacker_nose_bridge[3][1]]
 
 	anb_pts = numpy.array([a_top_bridge, a_left_bridge, a_right_bridge])
 
@@ -309,8 +310,6 @@ def nose_cut(attacker, attacker_nose_bridge, attacker_nose_tip):
 
 	# crop the image to just the size of the rectangle
 	attacker_croped_nose_bridge = attacker[anby:anby+anbh, anbx:anbx+anbw].copy()
-
-	#save_image("aaaaa", attacker_croped_nose_bridge)
 
 	# make mask of nose triangle and trim out unnecessary face features
 	mask_pts = anb_pts - anb_pts.min(axis = 0)
@@ -324,8 +323,8 @@ def nose_cut(attacker, attacker_nose_bridge, attacker_nose_tip):
 
 	# do the same for the nose tip (this time a rectangle)
 	# get nose tip dimensions and modify dimensions to extend a bit past the nose tip in the x direction
-	a_top_left_tip = [attacker_nose_tip[0][0] - int(a_nose_tip_width/2), attacker_nose_bridge[3][1]]
-	a_bottom_right_tip = [attacker_nose_tip[4][0] + int(a_nose_tip_width/2), attacker_nose_tip[3][1]]
+	a_top_left_tip = [attacker_nose_tip[0][0] - int(a_nose_tip_width/4), attacker_nose_bridge[3][1]]
+	a_bottom_right_tip = [attacker_nose_tip[4][0] + int(a_nose_tip_width/4), attacker_nose_tip[3][1]]
 
 	ant_pts = numpy.array([a_top_left_tip, a_bottom_right_tip])
 
@@ -344,7 +343,9 @@ def nose_cut(attacker, attacker_nose_bridge, attacker_nose_tip):
 
 	return (attacker_croped_nose_bridge, attacker_croped_nose_tip)
 
-def nose_paste(attacker, victim, victim_nose_bridge, victim_nose_tip, attacker_nose_bridge_cut, attacker_nose_tip_cut):
+
+def nose_paste(attacker, victim_nose_bridge, victim_nose_tip, attacker_nose_bridge_cut, attacker_nose_tip_cut):
+	print("[INFO] Adjusting Nose...")
 	# turn tuple list into list list
 	victim_nose_bridge = [[x,y] for x,y in victim_nose_bridge]
 	victim_nose_tip = [[x,y] for x,y in victim_nose_tip]
@@ -357,8 +358,8 @@ def nose_paste(attacker, victim, victim_nose_bridge, victim_nose_tip, attacker_n
 	# we want to get a triangle cut of the nose bridge to copy into a new location
 	# get nose bridge dimensions and modify dimensions to extend a bit past the nose tip in the x direction
 	v_top_bridge = victim_nose_bridge[0]
-	v_left_bridge = [victim_nose_tip[0][0] - int(v_nose_tip_width/2), victim_nose_bridge[3][1]]
-	v_right_bridge = [victim_nose_tip[4][0] + int(v_nose_tip_width/2), victim_nose_bridge[3][1]]
+	v_left_bridge = [victim_nose_tip[0][0] - int(v_nose_tip_width/4), victim_nose_bridge[3][1]]
+	v_right_bridge = [victim_nose_tip[4][0] + int(v_nose_tip_width/4), victim_nose_bridge[3][1]]
 
 	vnb_pts = numpy.array([v_top_bridge, v_left_bridge, v_right_bridge])
 
@@ -397,8 +398,8 @@ def nose_paste(attacker, victim, victim_nose_bridge, victim_nose_tip, attacker_n
 	
 	# do the same for the nose tip (this time a rectangle)
 	# get nose tip dimensions and modify dimensions to extend a bit past the nose tip in the x direction
-	v_top_left_tip = [victim_nose_tip[0][0] - int(v_nose_tip_width/2), victim_nose_bridge[3][1]]
-	v_bottom_right_tip = [victim_nose_tip[4][0] + int(v_nose_tip_width/2), victim_nose_tip[3][1]]
+	v_top_left_tip = [victim_nose_tip[0][0] - int(v_nose_tip_width/4), victim_nose_bridge[3][1]]
+	v_bottom_right_tip = [victim_nose_tip[4][0] + int(v_nose_tip_width/4), victim_nose_tip[3][1]]
 
 	vnt_pts = numpy.array([v_top_left_tip, v_bottom_right_tip])
 
@@ -455,7 +456,8 @@ def mouth_cut(attacker, attacker_top_lip, attacker_bottom_lip):
 	return (attacker_croped_top_lip, attacker_croped_bottom_lip)
 	
 
-def mouth_paste(attacker, victim, victim_top_lip, victim_bottom_lip, attacker_top_lip_cut, attacker_bottom_lip_cut):
+def mouth_paste(attacker, victim_top_lip, victim_bottom_lip, attacker_top_lip_cut, attacker_bottom_lip_cut):
+	print("[INFO] Adjusting Mouth...")
 	# turn tuple list into list list
 	victim_top_lip = [[x,y] for x,y in victim_top_lip]
 	victim_bottom_lip = [[x,y] for x,y in victim_bottom_lip]
@@ -491,7 +493,7 @@ def mouth_paste(attacker, victim, victim_top_lip, victim_bottom_lip, attacker_to
 	attacker[vuly:vuly+vulh, vulx:vulx+vulw] = attacker_top_lip_cut
 	attacker[vbly:vbly+vblh, vblx:vblx+vblw] = attacker_bottom_lip_cut
 
-
+"""
 def blank_face(image, landmarks, color_ref):
 	# get the highest mark on the face
 	y = [y for x,y in landmarks["left_eyebrow"]]
@@ -512,43 +514,121 @@ def blank_face(image, landmarks, color_ref):
 	cv2.fillPoly(image, poly, color_ref)
 
 	#show_image("croped face", image)
+"""
+
+# Get the background around the victim's face and transpose it onto the attacker's image
+def set_victim_chin(attacker, victim, victim_chin):
+	v_chin_points = [[x,y] for x, y in victim_chin]
+	v_chin_points += [[image_size, 0], [image_size, image_size], [0, image_size], [0, 0]]
+	poly = numpy.array( [v_chin_points], dtype=numpy.int32 )
+	#cv2.fillPoly(attacker, poly, (255,255,255))
+	
+	# Trim nose triangle
+	mask_pts = numpy.array(v_chin_points)
+	mask_pts = mask_pts - mask_pts.min(axis = 0)
+	mask = numpy.zeros(victim.shape[:2], numpy.uint8)
+	cv2.drawContours(mask, [mask_pts], -1, (255,255,255), -1, cv2.LINE_AA)
+	victim = cv2.bitwise_and(victim, victim, mask=mask)
+	
+	# Create mask of nose and create inverse mask
+	victim_gray = cv2.cvtColor(victim, cv2.COLOR_BGR2GRAY)
+	ret, mask = cv2.threshold(victim_gray, 10, 255, cv2.THRESH_BINARY)
+	mask_inv = cv2.bitwise_not(mask)
+	
+	# black-out area of nose in ROI
+	attacker_bg = cv2.bitwise_and(attacker, attacker, mask=mask_inv)
+	
+	# take only region of nose from nose image
+	victim_fg = cv2.bitwise_and(victim, victim, mask=mask)
+	
+	# put nose in roi and modify main image
+	attacker = cv2.add(attacker_bg, victim_fg)
+
+	return attacker
 
 
 def transpose_face(attacker, victim):
+	# get the dictionary of landmark points from the victim and attacker
 	attacker_landmarks = face_recognition.face_landmarks(attacker)[0]
 	victim_landmarks = face_recognition.face_landmarks(victim)[0]
-	#print("Attacker")
-	#print(attacker_landmarks)
-	#print("Victim")
-	#print(victim_landmarks)
-
-	# grab a color reference, this will be the default color we use when we need to cover up features
-	#color_ref = get_color(attacker, attacker_landmarks["nose_bridge"][1])
 
 	# start grabing features we will need for later
 	attacker_nose_bridge_cut, attacker_nose_tip_cut = nose_cut(attacker, attacker_landmarks["nose_bridge"], attacker_landmarks["nose_tip"])
 	attacker_mouth_top_cut, attacker_mouth_bottom_cut = mouth_cut(attacker, attacker_landmarks["top_lip"], attacker_landmarks["bottom_lip"])
+	attacker_right_eye_cut = eye_cut(attacker, attacker_landmarks["right_eye"])
+	attacker_left_eye_cut = eye_cut(attacker, attacker_landmarks["left_eye"])
+
+	# Grab features from the victim as well
+	victim_nose_bridge_cut, victim_nose_tip_cut = nose_cut(victim, victim_landmarks["nose_bridge"], victim_landmarks["nose_tip"])
+	victim_mouth_top_cut, victim_mouth_bottom_cut = mouth_cut(victim, victim_landmarks["top_lip"], victim_landmarks["bottom_lip"])
+	victim_right_eye_cut = eye_cut(victim, victim_landmarks["right_eye"])
+	victim_left_eye_cut = eye_cut(victim, victim_landmarks["left_eye"])
 	
 	chin_blackout(attacker, victim_landmarks["chin"])
 	chin_adjust(attacker, victim, attacker_landmarks["chin"], victim_landmarks["chin"])
 
-	mouth_paste(attacker, victim, victim_landmarks["top_lip"], victim_landmarks["bottom_lip"], attacker_mouth_top_cut, attacker_mouth_bottom_cut)
-	nose_paste(attacker, victim, victim_landmarks["nose_bridge"], victim_landmarks["nose_tip"], attacker_nose_bridge_cut, attacker_nose_tip_cut)	
+	attacker = blur_face_2(attacker, 6)
 
-	attacker = eyes(attacker, victim, attacker_landmarks["right_eye"], victim_landmarks["right_eye"])
-	attacker = eyes(attacker, victim, attacker_landmarks["left_eye"], victim_landmarks["left_eye"])
+	if False:
+		mouth_paste(attacker, victim_landmarks["top_lip"], victim_landmarks["bottom_lip"], attacker_mouth_top_cut, attacker_mouth_bottom_cut)
+		nose_paste(attacker, victim_landmarks["nose_bridge"], victim_landmarks["nose_tip"], attacker_nose_bridge_cut, attacker_nose_tip_cut)	
+		eye_paste(attacker, victim_landmarks["right_eye"], attacker_right_eye_cut)
+		eye_paste(attacker, victim_landmarks["left_eye"], attacker_left_eye_cut)
+	else:
+		mouth_paste(attacker, victim_landmarks["top_lip"], victim_landmarks["bottom_lip"], victim_mouth_top_cut, victim_mouth_bottom_cut)
+		nose_paste(attacker, victim_landmarks["nose_bridge"], victim_landmarks["nose_tip"], victim_nose_bridge_cut, victim_nose_tip_cut)	
+		eye_paste(attacker, victim_landmarks["right_eye"], victim_right_eye_cut)
+		eye_paste(attacker, victim_landmarks["left_eye"], victim_left_eye_cut)
+
+	attacker = blur_face_2(attacker, 3)
+	chin_blackout(attacker, victim_landmarks["chin"])
+	attacker = set_victim_chin(attacker, victim, victim_landmarks["chin"])
+
 	save_image("spoofed_image", attacker)
-	done()
-	
 
-	#attacker = mouth(attacker, victim, attacker_landmarks["top_lip"], victim_landmarks["top_lip"], attacker_landmarks["bottom_lip"], victim_landmarks["bottom_lip"])
-	#save_image("features5", attacker)
 
-	# resize to blur the adjustments
-	#cv2.resize(attacker, (150, 150))
+def blur_face(spoofed_image, rounds=1):
+	print("[INFO] Bluring Spoofed Image...")
 
-	#show_image("attacker", attacker)
+	for i in range(rounds):
+		spoofed_image = cv2.pyrDown(spoofed_image)
 
+	for i in range(rounds):
+		spoofed_image = cv2.pyrUp(spoofed_image)
+
+	save_image("blured_spoofed_image", spoofed_image)
+
+
+def blur_face_2(spoofed_image, rounds=6):
+
+	# generate Gaussian pyramid for A
+	G = spoofed_image.copy()
+	gp = [G]
+	for i in range(rounds):
+		G = cv2.pyrDown(G)
+		gp.append(G)
+
+	# generate Laplacian Pyramid for A
+	lp = [gp[rounds-1]]
+	for i in range(rounds-1,0,-1):
+		GE = cv2.pyrUp(gp[i])
+		L = cv2.subtract(gp[i-1],GE)
+		lp.append(L)
+
+	# Now add left and right halves of images in each level
+	LS = []
+	for l in lp:
+		LS.append(l)
+
+	# now reconstruct
+	ls_ = LS[0]
+	for i in range(1,rounds):
+		ls_ = cv2.pyrUp(ls_)
+		ls_ = cv2.add(ls_, LS[i])
+
+	cv2.imwrite('test_pic_output/Pyramid_blending2.jpg',ls_)
+
+	return ls_
 
 def done():
 	#print("Any key to continue")
@@ -556,324 +636,36 @@ def done():
 	cv2.destroyAllWindows()
 	exit(0)
 
-# construct the argument parser and parse the arguments
-ap = argparse.ArgumentParser()
-ap.add_argument("-e", "--encodings", required=True,
-	help="path to serialized db of facial encodings")
-ap.add_argument("-i", "--image1", required=True,
-	help="path to first input image (victim)")
-ap.add_argument("-j", "--image2", required=True,
-	help="path to second input image (attacker)")
-ap.add_argument("-d", "--detection-method", type=str, default="cnn",
-	help="face detection model to use: either `hog` or `cnn`")
-args = vars(ap.parse_args())
-
-# load the known faces and embeddings
-print("[INFO] loading encodings...")
-data = pickle.loads(open(args["encodings"], "rb").read())
-
-image1 = process_face(args["image1"])
-rgb1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
-image2 = process_face(args["image2"])
-rgb2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
-#save_image("orig 1", image1)
-#save_image("orig 2", image2)
-
-transpose_face(image1, image2)
-
-done()
-
-# detect the (x, y)-coordinates of the bounding boxes corresponding
-# to each face in the input image, then compute the facial embeddings
-# for each face
-print("[INFO] generating embeddings for face 1...")
-boxes1 = face_recognition.face_locations(rgb1,
-	model=args["detection_method"])
-encodings1 = face_recognition.face_encodings(rgb1, boxes1)
-
-# same for second image
-print("[INFO] generating embeddings for face 2...")
-boxes2 = face_recognition.face_locations(rgb2,
-	model=args["detection_method"])
-encodings2 = face_recognition.face_encodings(rgb2, boxes2)
-
-# run the face_recognition.compare_faces() function to match faces
-print("[INFO] comparing faces...")
-for encoding2 in encodings2:
-	match = face_recognition.compare_faces(encodings1, encoding2, .6)
-print(match)
-
-"""
-
-# initialize the list of names for each face detected
-names = []
-
-# loop over the facial embeddings
-for encoding in encodings:
-	# attempt to match each face in the input image to our known
-	# encodings
-	matches = face_recognition.compare_faces(data["encodings"],
-		encoding)
-	name = "Unknown"
-
-	# check to see if we have found a match
-	if True in matches:
-		# find the indexes of all matched faces then initialize a
-		# dictionary to count the total number of times each face
-		# was matched
-		matchedIdxs = [i for (i, b) in enumerate(matches) if b]
-		counts = {}
-
-		# loop over the matched indexes and maintain a count for
-		# each recognized face face
-		for i in matchedIdxs:
-			name = data["names"][i]
-			counts[name] = counts.get(name, 0) + 1
-
-		# determine the recognized face with the largest number of
-		# votes (note: in the event of an unlikely tie Python will
-		# select first entry in the dictionary)
-		name = max(counts, key=counts.get)
-	
-	# update the list of names
-	names.append(name)
-
-# loop over the recognized faces
-for ((top, right, bottom, left), name) in zip(boxes, names):
-	# draw the predicted face name on the image
-	cv2.rectangle(image, (left, top), (right, bottom), (0, 255, 0), 2)
-	y = top - 15 if top - 15 > 15 else top + 15
-	cv2.putText(image, name, (left, y), cv2.FONT_HERSHEY_SIMPLEX,
-		0.75, (0, 255, 0), 2)
-
-# show the output image
-cv2.imshow("Image1", image1)
-"""
-done()
-
-
-
-def face_contours(attacker, victim, attacker_chin, victim_chin):
-	print(attacker_chin)
-	print(victim_chin)
-
-	last_attacker_ref_point = []
-	last_victim_ref_point = []
-
-	#save_image("attacker_pre", mark_faces(attacker))
-
-	for point in range(len(attacker_chin)):
-
-		if point == 0:
-			last_attacker_ref_point = attacker_chin[point]
-			last_victim_ref_point = victim_chin[point]
-			continue
-		
-		attacker_line = []
-		ls = LineString([tuple(last_attacker_ref_point), tuple(attacker_chin[point])])
-		for f in range(0, int(math.ceil(ls.length)) + 1):
-			p = ls.interpolate(f).coords[0]
-			pr = map(round, p)
-			attacker_line.append(list(pr))
-
-		victim_line = []
-		ls = LineString([tuple(last_victim_ref_point), tuple(victim_chin[point])])
-		for f in range(0, int(math.ceil(ls.length)) + 1):
-			p = ls.interpolate(f).coords[0]
-			pr = map(round, p)
-			victim_line.append(list(pr))
-
-		print("round: " + str(point))
-		print(len(victim_line))
-		print(len(attacker_line))
-		#for i in range(len(attacker_line))
-
-		#done()
-
-		last_attacker_ref_point = attacker_chin[point]
-		last_victim_ref_point = victim_chin[point]
-	done()
-
-
-
-def final_chin(attacker, victim, attacker_chin, victim_chin):
-	print(attacker_chin)
-	print(victim_chin)
-
-	last_attacker_ref_point = []
-	last_victim_ref_point = []
-
-	#save_image("attacker_pre", mark_faces(attacker))
-
-	for point in range(len(attacker_chin)):
-
-		if point == 0:
-			last_attacker_ref_point = attacker_chin[point]
-			last_victim_ref_point = victim_chin[point]
-			continue
-		
-		#mask = numpy.zeros((attacker.shape[:-1]), dtype=numpy.uint8)
-		box = numpy.array( [[last_attacker_ref_point, last_victim_ref_point, victim_chin[point], attacker_chin[point]]], dtype=numpy.int32 )
-		cv2.fillPoly(attacker, box, (255, 255, 255))
-
-		if point == 1:
-			#save_image("attacker_post", mark_faces(attacker))
-
-			done()
-
-def nose(attacker, victim, attacker_nose_bridge, victim_nose_bridge, attacker_nose_tip, victim_nose_tip):
-	#print(attacker_nose_bridge)
-
-	# turn tuple list into list list
-	attacker_nose_bridge = [[x,y] for x,y in attacker_nose_bridge]
-	victim_nose_bridge = [[x,y] for x,y in victim_nose_bridge]
-	attacker_nose_tip = [[x,y] for x,y in attacker_nose_tip]
-	victim_nose_tip = [[x,y] for x,y in victim_nose_tip]
-
-	# get nose tip width
-	a_nose_tip_width = attacker_nose_tip[4][0] - attacker_nose_tip[0][0]
-	v_nose_tip_width = victim_nose_tip[4][0] - victim_nose_tip[0][0]
-	#print("nose tip width: " + str(a_nose_tip_width))
-
-	# we want to get a triangle cut of the nose bridge to copy into a new location
-	# get nose bridge dimensions and modify dimensions to extend a bit past the nose tip in the x direction
-	a_top_bridge = attacker_nose_bridge[0]
-	a_left_bridge = [attacker_nose_tip[0][0] - int(a_nose_tip_width/2), attacker_nose_bridge[3][1]]
-	a_right_bridge = [attacker_nose_tip[4][0] + int(a_nose_tip_width/2), attacker_nose_bridge[3][1]]
-
-	v_top_bridge = victim_nose_bridge[0]
-	v_left_bridge = [victim_nose_tip[0][0] - int(v_nose_tip_width/2), victim_nose_bridge[3][1]]
-	v_right_bridge = [victim_nose_tip[4][0] + int(v_nose_tip_width/2), victim_nose_bridge[3][1]]
-
-	anb_pts = numpy.array([a_top_bridge, a_left_bridge, a_right_bridge])
-	vnb_pts = numpy.array([v_top_bridge, v_left_bridge, v_right_bridge])
-
-	# make a rectangle around the 3 nose bridge points
-	anb_rect = cv2.boundingRect(anb_pts)
-	anbx,anby,anbw,anbh = anb_rect
-
-	# crop the image to just the size of the rectangle
-	attacker_croped_nose_bridge = attacker[anby:anby+anbh, anbx:anbx+anbw].copy()
-
-	# make mask of nose triangle and trim out unnecessary face features
-	mask_pts = anb_pts - anb_pts.min(axis = 0)
-	mask = numpy.zeros(attacker_croped_nose_bridge.shape[:2], numpy.uint8)
-	cv2.drawContours(mask, [mask_pts], -1, (255,255,255), -1, cv2.LINE_AA)
-	attacker_croped_nose_bridge_mask = cv2.bitwise_and(attacker_croped_nose_bridge, attacker_croped_nose_bridge, mask=mask)
-	# still deciding if we need a white or black mask
-	bg = numpy.ones_like(attacker_croped_nose_bridge, numpy.uint8)*255
-	cv2.bitwise_not(bg, bg, mask=mask)
-	attacker_croped_nose_bridge_mask += bg
-
-	# find location of victim nose bridge
-	vnb_rect = cv2.boundingRect(vnb_pts)
-	vnbx,vnby,vnbw,vnbh = vnb_rect
-
-	# resize attacker nose bridge to victim nose bridge size
-	attacker_croped_nose_bridge_mask = cv2.resize(attacker_croped_nose_bridge_mask, (vnbw, vnbh))
-	#show_image("attacker_croped_nose_bridge", attacker_croped_nose_bridge_mask)
-
-	# do the same for the nose tip (this time a rectangle)
-	# get nose tip dimensions and modify dimensions to extend a bit past the nose tip in the x direction
-	a_top_left_tip = [attacker_nose_tip[0][0] - int(a_nose_tip_width/2), attacker_nose_bridge[3][1]]
-	a_bottom_right_tip = [attacker_nose_tip[4][0] + int(a_nose_tip_width/2), attacker_nose_tip[3][1]]
-
-	v_top_left_tip = [victim_nose_tip[0][0] - int(v_nose_tip_width/2), victim_nose_bridge[3][1]]
-	v_bottom_right_tip = [victim_nose_tip[4][0] + int(v_nose_tip_width/2), victim_nose_tip[3][1]]
-
-	ant_pts = numpy.array([a_top_left_tip, a_bottom_right_tip])
-	vnt_pts = numpy.array([v_top_left_tip, v_bottom_right_tip])
-
-	# make a rectangle around the 3 nose bridge points
-	ant_rect = cv2.boundingRect(ant_pts)
-	antx,anty,antw,anth = ant_rect
-
-	# crop the image to just the size of the rectangle
-	attacker_croped_nose_tip = attacker[anty:anty+anth, antx:antx+antw].copy()
-
-	# find location of victim nose tip
-	vnt_rect = cv2.boundingRect(vnt_pts)
-	vntx,vnty,vntw,vnth = vnt_rect
-
-	# resize attacker nose tip to victim nose tip size
-	attacker_croped_nose_tip = cv2.resize(attacker_croped_nose_tip, (vntw, vnth))
-	#show_image("attacker_croped_nose_tip", attacker_croped_nose_tip)
-
-	# Copy new nose onto attacker's face
-	attacker[vnby:vnby+vnbh, vnbx:vnbx+vnbw] = attacker_croped_nose_bridge_mask
-	attacker[vnty:vnty+vnth, vntx:vntx+vntw] = attacker_croped_nose_tip
-
-
-	#print("dimensions: " + str(a_top_bridge) + " " + str(a_left_bridge) + " " + str(a_right_bridge))
-	#show_image("nose", attacker)
-
-	return attacker
-
-
-def mouth(attacker, victim, attacker_top_lip, victim_top_lip, attacker_bottom_lip, victim_bottom_lip):
-	#print("top_lip")
-	#print(attacker_top_lip)
-	#print("bottom_lip")
-	#print(attacker_bottom_lip)
-
-	# turn tuple list into list list
-	attacker_top_lip = [[x,y] for x,y in attacker_top_lip]
-	victim_top_lip = [[x,y] for x,y in victim_top_lip]
-	attacker_bottom_lip = [[x,y] for x,y in attacker_bottom_lip]
-	victim_bottom_lip = [[x,y] for x,y in victim_bottom_lip]
-
-	# get upper lip dimensions and modify dimensions to extend a bit past the upper lip edges
-	a_top_left_upper_lip = [attacker_top_lip[0][0]-5, min(attacker_top_lip[2][1], attacker_top_lip[4][1]) - 5]
-	a_bottom_right_upper_lip = [attacker_top_lip[6][0] + 5, attacker_top_lip[9][1]]
-
-	v_top_left_upper_lip = [victim_top_lip[0][0]-5, min(victim_top_lip[2][1], victim_top_lip[4][1]) - 5]
-	v_bottom_right_upper_lip = [victim_top_lip[6][0] + 5, victim_top_lip[9][1]]
-
-	aul_pts = numpy.array([a_top_left_upper_lip, a_bottom_right_upper_lip])
-	vul_pts = numpy.array([v_top_left_upper_lip, v_bottom_right_upper_lip])
-
-	# make a rectangle around the upper lip
-	aul_rect = cv2.boundingRect(aul_pts)
-	aulx,auly,aulw,aulh = aul_rect
-
-	# crop the image to just the size of the rectangle
-	attacker_croped_upper_lip = attacker[auly:auly+aulh, aulx:aulx+aulw].copy()
-
-	# find location of victim upper lip
-	vul_rect = cv2.boundingRect(vul_pts)
-	vulx,vuly,vulw,vulh = vul_rect
-
-	# resize attacker upper lip to victim upper lip size
-	attacker_croped_upper_lip = cv2.resize(attacker_croped_upper_lip, (vulw, vulh))
-	#show_image("attacker_croped_upper_lip", attacker_croped_upper_lip)
-
-	# do the same for the bottom lip
-	# get bottom lip dimensions and modify dimensions to extend a bit past the bottom lip edges
-	a_top_left_bottom_lip = [attacker_bottom_lip[6][0] - 5, attacker_bottom_lip[9][1]]
-	a_bottom_right_bottom_lip = [attacker_bottom_lip[0][0] + 5, attacker_bottom_lip[3][1] + 5]
-
-	v_top_left_bottom_lip = [victim_bottom_lip[6][0] - 5, victim_bottom_lip[9][1]]
-	v_bottom_right_bottom_lip = [victim_bottom_lip[0][0] + 5, victim_bottom_lip[3][1] + 5]
-
-	abl_pts = numpy.array([a_top_left_bottom_lip, a_bottom_right_bottom_lip])
-	vbl_pts = numpy.array([v_top_left_bottom_lip, v_bottom_right_bottom_lip])
-
-	# make a rectangle around the bottom lip
-	abl_rect = cv2.boundingRect(abl_pts)
-	ablx,ably,ablw,ablh = abl_rect
-
-	# crop the image to just the size of the rectangle
-	attacker_croped_bottom_lip = attacker[ably:ably+ablh, ablx:ablx+ablw].copy()
-
-	# find location of victim bottom lip
-	vbl_rect = cv2.boundingRect(vbl_pts)
-	vblx,vbly,vblw,vblh = vbl_rect
-
-	# resize attacker bottom lip to victim bottom lip size
-	attacker_croped_bottom_lip = cv2.resize(attacker_croped_bottom_lip, (vblw, vblh))
-
-	# Copy new nose onto attacker's face
-	attacker[vuly:vuly+vulh, vulx:vulx+vulw] = attacker_croped_upper_lip
-	attacker[vbly:vbly+vblh, vblx:vblx+vblw] = attacker_croped_bottom_lip
-
-	return attacker
+def main():
+	# construct the argument parser and parse the arguments
+	ap = argparse.ArgumentParser()
+	ap.add_argument("-e", "--encodings", required=True,
+		help="path to serialized db of facial encodings")
+	ap.add_argument("-i", "--image1", required=True,
+		help="path to first input image (victim)")
+	ap.add_argument("-j", "--image2", required=True,
+		help="path to second input image (attacker)")
+	args = vars(ap.parse_args())
+
+	# load the known faces and embeddings
+	print("[INFO] loading encodings...")
+	data = pickle.loads(open(args["encodings"], "rb").read())
+
+	print("[INFO] Processing Attacker Image...")
+	image1 = process_face(args["image1"])
+	rgb1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
+	print("[INFO] Processing Victim Image...")
+	image2 = process_face(args["image2"])
+	rgb2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
+	#save_image("orig 1", image1)
+	#save_image("orig 2", image2)
+
+	transpose_face(image1, image2)
+
+	#blur_face(image1)
+	#blur_face_2(image1, 9)
+
+	print("[INFO] Complete!!")
+
+if __name__ == "__main__":
+	main()

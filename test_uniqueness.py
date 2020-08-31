@@ -56,7 +56,8 @@ def mark_faces(image):
 		for i in landmarks[key]:
 			cv2.circle(image, i, 2, (0,0,255), 2)
 
-	cv2.circle(image, (int(image_size/2), int(image_size/2)), 2, (255,0,0), 2)
+	h, w = image.shape[:2]
+	cv2.circle(image, (int(w/2), int(h/2)), 2, (255,0,0), 2)
 	
 	#show_image("marked_image", image)
 
@@ -134,6 +135,18 @@ def rotate_face(image, iterations=3):
 	return image
 
 
+def blur_face(spoofed_image, rounds=1):
+	print("[INFO] Bluring Spoofed Image...")
+
+	for i in range(rounds):
+		spoofed_image = cv2.pyrDown(spoofed_image)
+
+	for i in range(rounds):
+		spoofed_image = cv2.pyrUp(spoofed_image)
+
+	return spoofed_image
+
+
 def chin_blackout(image, chin_points):
 	v_chin_points = [[x,y] for x, y in chin_points]
 	v_chin_points += [[image_size, 0], [image_size, image_size], [0, image_size], [0, 0]]
@@ -173,7 +186,7 @@ for each in small_faces:
 	temp = translate_face(temp)
 	temp = rotate_face(temp)
 	images1.append(temp)
-save_image("validate_image_1", image1)
+	break
 rgb1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
 
 # load the second image
@@ -193,7 +206,7 @@ for each in small_faces:
 	temp = translate_face(temp)
 	temp = rotate_face(temp)
 	images2.append(temp)
-save_image("validate_image_2", image2)
+	break
 rgb2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
 
 # detect the (x, y)-coordinates of the bounding boxes corresponding

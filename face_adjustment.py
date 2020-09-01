@@ -148,12 +148,10 @@ def process_face(image_file):
 	print("[INFO] loading and processing " + image_file + "...")
 	image = cv2.imread(image_file)
 	image = imutils.resize(image, width=600)
-	#show_image("orig process_face " + image_file, image)
 	face_boundaries = face_recognition.face_locations(image)[0]
 	image = cv2.resize(image[face_boundaries[0]-boundary_extension:face_boundaries[2]+boundary_extension, face_boundaries[3]-boundary_extension:face_boundaries[1]+boundary_extension], (image_size, image_size))
 	image = translate_face(image)
 	image = rotate_face(image)
-	#save_image("new_mark_face", mark_faces(image))
 	return image
 
 
@@ -547,7 +545,7 @@ def set_victim_chin(attacker, victim, victim_chin):
 	return attacker
 
 
-def transpose_face(attacker, victim):
+def transpose_face(attacker, victim, flag=True):
 	# get the dictionary of landmark points from the victim and attacker
 	attacker_landmarks = face_recognition.face_landmarks(attacker)[0]
 	victim_landmarks = face_recognition.face_landmarks(victim)[0]
@@ -569,7 +567,7 @@ def transpose_face(attacker, victim):
 
 	attacker = blur_face_2(attacker, 6)
 
-	if False:
+	if flag:
 		mouth_paste(attacker, victim_landmarks["top_lip"], victim_landmarks["bottom_lip"], attacker_mouth_top_cut, attacker_mouth_bottom_cut)
 		nose_paste(attacker, victim_landmarks["nose_bridge"], victim_landmarks["nose_tip"], attacker_nose_bridge_cut, attacker_nose_tip_cut)	
 		eye_paste(attacker, victim_landmarks["right_eye"], attacker_right_eye_cut)
@@ -584,7 +582,7 @@ def transpose_face(attacker, victim):
 	chin_blackout(attacker, victim_landmarks["chin"])
 	attacker = set_victim_chin(attacker, victim, victim_landmarks["chin"])
 
-	save_image("spoofed_image", attacker)
+	return attacker
 
 
 def blur_face(spoofed_image, rounds=1):
@@ -595,8 +593,6 @@ def blur_face(spoofed_image, rounds=1):
 
 	for i in range(rounds):
 		spoofed_image = cv2.pyrUp(spoofed_image)
-
-	save_image("blured_spoofed_image", spoofed_image)
 
 
 def blur_face_2(spoofed_image, rounds=6):
@@ -626,8 +622,6 @@ def blur_face_2(spoofed_image, rounds=6):
 		ls_ = cv2.pyrUp(ls_)
 		ls_ = cv2.add(ls_, LS[i])
 
-	cv2.imwrite('test_pic_output/Pyramid_blending2.jpg',ls_)
-
 	return ls_
 
 def done():
@@ -653,12 +647,8 @@ def main():
 
 	print("[INFO] Processing Attacker Image...")
 	image1 = process_face(args["image1"])
-	rgb1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
 	print("[INFO] Processing Victim Image...")
 	image2 = process_face(args["image2"])
-	rgb2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
-	#save_image("orig 1", image1)
-	#save_image("orig 2", image2)
 
 	transpose_face(image1, image2)
 

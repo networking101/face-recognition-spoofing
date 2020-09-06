@@ -223,8 +223,7 @@ for victim in victims:
 		break
 	rgb2 = cv2.cvtColor(victim_face, cv2.COLOR_BGR2RGB)
 
-	attacker_face_copy = copy.deepcopy(attacker_face)
-	spoofed_attacker_face = face_adjustment.transpose_face(attacker_face_copy, victim_face, True)
+	spoofed_attacker_face = copy.deepcopy(attacker_face)
 	rgb1 = cv2.cvtColor(spoofed_attacker_face, cv2.COLOR_BGR2RGB)
 
 	# detect the (x, y)-coordinates of the bounding boxes corresponding
